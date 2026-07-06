@@ -28,6 +28,7 @@ private fun LifeCounterApp(viewModel: GameViewModel = viewModel()) {
     LifeCounterScreen(
         state = state,
         onLifeChange = viewModel::adjustLife,
+        onToggleTimer = viewModel::toggleTimer,
         onReset = viewModel::resetGame,
     )
 }

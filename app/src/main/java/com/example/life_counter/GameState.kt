@@ -9,14 +9,28 @@ data class LifeChange(
     val timestamp: Long,
 )
 
+data class PlayerState(
+    val life: Int = GameState.STARTING_LIFE,
+    // Accumulated not-yet-logged change; committed to history as one entry
+    // after a quiet period with no further adjustments.
+    val pendingDelta: Int = 0,
+)
+
 data class GameState(
-    val player1Life: Int = STARTING_LIFE,
-    val player2Life: Int = STARTING_LIFE,
+    val player1: PlayerState = PlayerState(),
+    val player2: PlayerState = PlayerState(),
     val history: List<LifeChange> = emptyList(),
+    val elapsedSeconds: Int = 0,
+    val isTimerRunning: Boolean = false,
 ) {
-    fun lifeOf(player: Player): Int = when (player) {
-        Player.ONE -> player1Life
-        Player.TWO -> player2Life
+    fun player(player: Player): PlayerState = when (player) {
+        Player.ONE -> player1
+        Player.TWO -> player2
+    }
+
+    fun withPlayer(player: Player, state: PlayerState): GameState = when (player) {
+        Player.ONE -> copy(player1 = state)
+        Player.TWO -> copy(player2 = state)
     }
 
     companion object {
