@@ -1,7 +1,9 @@
 package com.example.life_counter
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,10 +11,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -23,7 +33,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -40,36 +49,134 @@ fun LifeCounterScreen(
     onReset: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
+    // Whether the history overlay is open is pure UI state — no game rule
+    // depends on it — so it lives here in the composable, not the ViewModel.
+    var showHistory by remember { mutableStateOf(false) }
+
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        // Opponent's half: composed upright, then rotated 180° so it reads
-        // correctly for the player sitting across the table. Touch input is
-        // rotated along with it.
-        PlayerPanel(
-            player = state.player2,
-            onAdjust = { delta -> onLifeChange(Player.TWO, delta) },
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .rotate(180f),
-        )
-        MiddleBar(
-            elapsedSeconds = state.elapsedSeconds,
-            isTimerRunning = state.isTimerRunning,
-            onToggleTimer = onToggleTimer,
-            onShowHistory = { /* wired up in step 7 */ },
-            onReset = onReset,
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Opponent's half: composed upright, then rotated 180° so it reads
+            // correctly for the player sitting across the table. Touch input is
+            // rotated along with it.
+            PlayerPanel(
+                player = state.player2,
+                onAdjust = { delta -> onLifeChange(Player.TWO, delta) },
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .rotate(180f),
+            )
+            MiddleBar(
+                elapsedSeconds = state.elapsedSeconds,
+                isTimerRunning = state.isTimerRunning,
+                onToggleTimer = onToggleTimer,
+                onShowHistory = { showHistory = true },
+                onReset = onReset,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            PlayerPanel(
+                player = state.player1,
+                onAdjust = { delta -> onLifeChange(Player.ONE, delta) },
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+            )
+        }
+        if (showHistory) {
+            HistoryOverlay(
+                history = state.history,
+                onClose = { showHistory = false },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun HistoryOverlay(
+    history: List<LifeChange>,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.background)
+            // Swallows taps so they can't reach the +/− zones underneath;
+            // indication = null turns off the ripple for this catch-all area.
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClose,
+            )
+            .systemBarsPadding()
+            .padding(horizontal = 24.dp),
+    ) {
+        Row(
             modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = "HISTORY",
+                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = 22.sp,
+            )
+            TextButton(onClick = onClose) {
+                Text(text = "CLOSE")
+            }
+        }
+        if (history.isEmpty()) {
+            Text(
+                text = "No life changes yet.",
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+                fontSize = 18.sp,
+                modifier = Modifier.padding(vertical = 16.dp),
+            )
+        } else {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                items(history.asReversed()) { change ->
+                    HistoryRow(change = change)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryRow(
+    change: LifeChange,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = formatTime(change.elapsedSeconds),
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+            fontSize = 18.sp,
+            fontFamily = FontFamily.Monospace,
         )
-        PlayerPanel(
-            player = state.player1,
-            onAdjust = { delta -> onLifeChange(Player.ONE, delta) },
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
+        Text(
+            text = when (change.player) {
+                Player.ONE -> "P1"
+                Player.TWO -> "P2"
+            },
+            color = MaterialTheme.colorScheme.onBackground,
+            fontSize = 18.sp,
+            fontFamily = FontFamily.Monospace,
+        )
+        Text(
+            text = "${formatDelta(change.amount)} → ${change.resultingTotal}",
+            color = MaterialTheme.colorScheme.onBackground,
+            fontSize = 18.sp,
+            fontFamily = FontFamily.Monospace,
         )
     }
 }
@@ -220,6 +327,10 @@ private fun LifeCounterScreenPreview() {
             state = GameState(
                 player1 = PlayerState(life = 18, pendingDelta = -2),
                 player2 = PlayerState(life = 21),
+                history = listOf(
+                    LifeChange(Player.TWO, +1, 21, 312),
+                    LifeChange(Player.ONE, -2, 18, 145),
+                ),
                 elapsedSeconds = 754,
                 isTimerRunning = true,
             ),

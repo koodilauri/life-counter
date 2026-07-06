@@ -11,8 +11,8 @@ A two-player TCG (trading card game) life counter app for Android, written in Ko
 - Two players' life totals shown simultaneously (one screen half per player, top half rotated 180° so the opposing player reads it upright).
 - Life adjustment buttons (+ / −): single tap changes by 1; press-and-hold changes by 5, then keeps repeating in increments of 5 while held.
 - History grouping: life changes to one player made in quick succession accumulate into a single history entry, committed 1s after the last change (debounce). While uncommitted, the pending delta (e.g. "−3") is shown in a smaller font above that player's life total; the life total itself always updates in real time.
-- Round timer.
-- History log of all (grouped) life changes (who, how much, when, resulting total).
+- Round timer (counts up, tap to pause/resume). Auto-starts on the first life change — but a manual pause is sticky: only a manual resume (or reset) restarts it.
+- History log of all (grouped) life changes (who, how much, resulting total), timestamped with **round-timer time** (mm:ss into the round), not wall-clock time.
 
 ## Teaching Mode (important)
 
@@ -66,4 +66,6 @@ Tutorial progress:
 - [x] Step 4 — two-player counter UI, tap ±1 (OLED-black theme, opponent half rotated 180°, +/− tap zones per half, middle bar with timer placeholder + history/reset buttons, keep-screen-on flag)
 - [x] Step 5 — press-and-hold ±5 repeat via coroutine (`detectTapGestures`/`onPress` in `AdjustZone`) + debounced history grouping (`PlayerState.pendingDelta`, per-player commit `Job` in ViewModel, virtual-time tests)
 - [x] Step 6 — round timer (counts up; tap the clock to pause/resume, dims while paused; `timerJob` coroutine in ViewModel). Gotcha learned: virtual-time tests must pause the timer before finishing, or `runTest` never drains the task queue and the test hangs.
-- [ ] Step 7 — history log
+- [x] Step 7 — history log (full-screen overlay via local `remember` state, `LazyColumn`, newest first; tap anywhere or CLOSE to dismiss)
+
+All 7 tutorial steps are complete. Remaining known gaps: app has only run on the user's device via Android Studio (no AVD on this machine); possible future ideas — starting-life picker, haptics on hold-repeat, persistence via DataStore.

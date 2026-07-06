@@ -6,7 +6,9 @@ data class LifeChange(
     val player: Player,
     val amount: Int,
     val resultingTotal: Int,
-    val timestamp: Long,
+    // Round-timer time (in seconds) when the change was committed, not wall
+    // clock — "P1 lost 6 at 12:34 into the round".
+    val elapsedSeconds: Int,
 )
 
 data class PlayerState(

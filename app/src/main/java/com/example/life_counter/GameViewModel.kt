@@ -18,8 +18,18 @@ class GameViewModel : ViewModel() {
     private val commitJobs = mutableMapOf<Player, Job>()
     private var timerJob: Job? = null
 
+    // Set only by an explicit pause. While true, life changes must NOT
+    // auto-start the timer; only a manual toggle (or reset) clears it.
+    private var manuallyPaused = false
+
     fun toggleTimer() {
-        if (_state.value.isTimerRunning) pauseTimer() else startTimer()
+        if (_state.value.isTimerRunning) {
+            manuallyPaused = true
+            pauseTimer()
+        } else {
+            manuallyPaused = false
+            startTimer()
+        }
     }
 
     private fun startTimer() {
@@ -51,6 +61,11 @@ class GameViewModel : ViewModel() {
                 ),
             )
         }
+        // The round has clearly begun once life changes — start the clock,
+        // unless the user deliberately paused it.
+        if (!_state.value.isTimerRunning && !manuallyPaused) {
+            startTimer()
+        }
         scheduleCommit(player)
     }
 
@@ -59,6 +74,7 @@ class GameViewModel : ViewModel() {
         commitJobs.clear()
         timerJob?.cancel()
         timerJob = null
+        manuallyPaused = false
         _state.value = GameState()
     }
 
@@ -80,7 +96,7 @@ class GameViewModel : ViewModel() {
                 player = player,
                 amount = p.pendingDelta,
                 resultingTotal = p.life,
-                timestamp = System.currentTimeMillis(),
+                elapsedSeconds = current.elapsedSeconds,
             )
             current
                 .withPlayer(player, p.copy(pendingDelta = 0))

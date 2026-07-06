@@ -57,7 +57,7 @@ class GameViewModelTest {
         assertEquals(-3, state.player1.pendingDelta)
         assertTrue(state.history.isEmpty())
 
-        advanceUntilIdle() // let the 1s commit timer fire (virtual time)
+        advanceTimeBy(1_100) // let the 1s commit timer fire (virtual time)
 
         state = viewModel.state.value
         assertEquals(0, state.player1.pendingDelta)
@@ -66,6 +66,8 @@ class GameViewModelTest {
         assertEquals(Player.ONE, entry.player)
         assertEquals(-3, entry.amount)
         assertEquals(GameState.STARTING_LIFE - 3, entry.resultingTotal)
+
+        viewModel.resetGame() // stop the auto-started round timer
     }
 
     @Test
@@ -85,6 +87,8 @@ class GameViewModelTest {
         assertEquals(1, history.size)
         assertEquals(-6, history.single().amount)
         assertEquals(GameState.STARTING_LIFE - 6, history.single().resultingTotal)
+
+        viewModel.resetGame() // stop the auto-started round timer
     }
 
     @Test
@@ -101,13 +105,48 @@ class GameViewModelTest {
         assertEquals(Player.ONE, history.single().player)
         assertEquals(-2, history.single().amount)
 
-        advanceUntilIdle()
+        advanceTimeBy(900) // player TWO's commit fires at 1.8s
 
         history = viewModel.state.value.history
         assertEquals(2, history.size)
         assertEquals(Player.TWO, history[1].player)
         assertEquals(1, history[1].amount)
+
+        viewModel.resetGame() // stop the auto-started round timer
     }
+
+    @Test
+    fun `a life change auto-starts the round timer`() = runTest(dispatcher) {
+        val viewModel = GameViewModel()
+
+        viewModel.adjustLife(Player.ONE, -1)
+
+        assertEquals(true, viewModel.state.value.isTimerRunning)
+        advanceTimeBy(3_600)
+        assertEquals(3, viewModel.state.value.elapsedSeconds)
+
+        viewModel.resetGame() // stop the auto-started round timer
+    }
+
+    @Test
+    fun `a manual pause is not overridden by auto-start and stamps entries with the frozen time`() =
+        runTest(dispatcher) {
+            val viewModel = GameViewModel()
+
+            viewModel.toggleTimer()
+            advanceTimeBy(60_500) // one minute into the round
+            viewModel.toggleTimer() // manual pause
+
+            viewModel.adjustLife(Player.ONE, -4) // must NOT restart the clock
+            advanceUntilIdle() // safe: timer is paused, only the commit job is pending
+
+            val state = viewModel.state.value
+            assertEquals(false, state.isTimerRunning)
+            assertEquals(60, state.elapsedSeconds)
+            val entry = state.history.single()
+            assertEquals(-4, entry.amount)
+            assertEquals(60, entry.elapsedSeconds)
+        }
 
     // NOTE: every test that starts the timer must pause it before finishing.
     // The ticking coroutine reschedules itself forever, and runTest only
