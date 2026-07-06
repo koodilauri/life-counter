@@ -61,8 +61,8 @@ Scaffolded from Android Studio's **"No Activity"** template (Gradle 9.4.1, AGP 9
 Tutorial progress:
 - [x] Step 1 — project scaffold, CLI build verified
 - [x] Step 2 — swap View-system deps for Compose (BOM, activity-compose, compose compiler plugin), add `MainActivity` + first `@Composable`
-- [ ] Step 3 — `GameState` data class + `GameViewModel` with `StateFlow`
-- [ ] Step 4 — two-player counter UI, tap ±1
+- [x] Step 3 — `GameState` data class + `GameViewModel` with `StateFlow` (+ `GameViewModelTest`, 4 passing JVM tests)
+- [x] Step 4 — two-player counter UI, tap ±1 (OLED-black theme, opponent half rotated 180°, +/− tap zones per half, middle bar with timer placeholder + history/reset buttons, keep-screen-on flag)
 - [ ] Step 5 — press-and-hold ±5 repeat via coroutine
 - [ ] Step 6 — round timer
 - [ ] Step 7 — history log
