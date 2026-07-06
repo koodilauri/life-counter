@@ -210,4 +210,18 @@ class GameViewModelTest {
 
         assertEquals(GameState(), viewModel.state.value)
     }
+
+    @Test
+    fun `resetGame can set a chosen starting life for both players`() = runTest(dispatcher) {
+        val viewModel = GameViewModel()
+        viewModel.adjustLife(Player.ONE, -3)
+
+        viewModel.resetGame(startingLife = 20)
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertEquals(20, state.player1.life)
+        assertEquals(20, state.player2.life)
+        assertTrue(state.history.isEmpty())
+    }
 }

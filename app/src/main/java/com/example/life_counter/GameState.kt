@@ -36,6 +36,6 @@ data class GameState(
     }
 
     companion object {
-        const val STARTING_LIFE = 20
+        const val STARTING_LIFE = 40
     }
 }

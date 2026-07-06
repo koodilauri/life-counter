@@ -8,11 +8,11 @@ A two-player TCG (trading card game) life counter app for Android, written in Ko
 
 ### Feature requirements
 
-- Two players' life totals shown simultaneously (one screen half per player, top half rotated 180° so the opposing player reads it upright).
+- Two players' life totals shown simultaneously (one screen half per player, top half rotated 180° so the opposing player reads it upright). Default starting life 40; RESET opens a confirmation dialog offering 40 (default) or 20.
 - Life adjustment buttons (+ / −): single tap changes by 1; press-and-hold changes by 5, then keeps repeating in increments of 5 while held.
 - History grouping: life changes to one player made in quick succession accumulate into a single history entry, committed 1s after the last change (debounce). While uncommitted, the pending delta (e.g. "−3") is shown in a smaller font above that player's life total; the life total itself always updates in real time.
 - Round timer (counts up, tap to pause/resume). Auto-starts on the first life change — but a manual pause is sticky: only a manual resume (or reset) restarts it.
-- History log of all (grouped) life changes (who, how much, resulting total), timestamped with **round-timer time** (mm:ss into the round), not wall-clock time.
+- History log of all (grouped) life changes (how much, resulting total), timestamped with **round-timer time** (mm:ss into the round), not wall-clock time; shown as two columns labelled TOP / BOTTOM (matching the screen halves).
 
 ## Teaching Mode (important)
 

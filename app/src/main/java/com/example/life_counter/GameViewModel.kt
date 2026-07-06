@@ -69,13 +69,16 @@ class GameViewModel : ViewModel() {
         scheduleCommit(player)
     }
 
-    fun resetGame() {
+    fun resetGame(startingLife: Int = GameState.STARTING_LIFE) {
         commitJobs.values.forEach { it.cancel() }
         commitJobs.clear()
         timerJob?.cancel()
         timerJob = null
         manuallyPaused = false
-        _state.value = GameState()
+        _state.value = GameState(
+            player1 = PlayerState(life = startingLife),
+            player2 = PlayerState(life = startingLife),
+        )
     }
 
     // Debounce: every adjustment cancels the player's previous commit timer

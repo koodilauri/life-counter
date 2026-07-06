@@ -6,6 +6,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -46,12 +48,13 @@ fun LifeCounterScreen(
     state: GameState,
     onLifeChange: (Player, Int) -> Unit,
     onToggleTimer: () -> Unit,
-    onReset: () -> Unit,
+    onReset: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Whether the history overlay is open is pure UI state — no game rule
-    // depends on it — so it lives here in the composable, not the ViewModel.
+    // Whether the history overlay / reset dialog are open is pure UI state —
+    // no game rule depends on it — so it lives here, not in the ViewModel.
     var showHistory by remember { mutableStateOf(false) }
+    var showResetDialog by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -75,7 +78,7 @@ fun LifeCounterScreen(
                 isTimerRunning = state.isTimerRunning,
                 onToggleTimer = onToggleTimer,
                 onShowHistory = { showHistory = true },
-                onReset = onReset,
+                onResetRequest = { showResetDialog = true },
                 modifier = Modifier.fillMaxWidth(),
             )
             PlayerPanel(
@@ -93,7 +96,38 @@ fun LifeCounterScreen(
                 modifier = Modifier.fillMaxSize(),
             )
         }
+        if (showResetDialog) {
+            ResetDialog(
+                onConfirm = { startingLife ->
+                    showResetDialog = false
+                    onReset(startingLife)
+                },
+                onCancel = { showResetDialog = false },
+            )
+        }
     }
+}
+
+@Composable
+private fun ResetDialog(
+    onConfirm: (Int) -> Unit,
+    onCancel: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onCancel, // tap outside / back button = cancel
+        title = { Text(text = "Reset game?") },
+        text = { Text(text = "Life totals, history and the round timer will be cleared. Choose the starting life.") },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(40) }) {
+                Text(text = "RESET TO 40")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { onConfirm(20) }) {
+                Text(text = "RESET TO 20")
+            }
+        },
+    )
 }
 
 @Composable
@@ -137,10 +171,43 @@ private fun HistoryOverlay(
                 modifier = Modifier.padding(vertical = 16.dp),
             )
         } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(history.asReversed()) { change ->
-                    HistoryRow(change = change)
-                }
+            // One column per player, labelled by which half of the screen
+            // they sit at — clearer than P1/P2, which appears nowhere else.
+            Row(modifier = Modifier.fillMaxSize()) {
+                HistoryColumn(
+                    label = "YOU",
+                    entries = history.filter { it.player == Player.ONE },
+                    modifier = Modifier.weight(1f),
+                )
+                HistoryColumn(
+                    label = "OPPONENT",
+                    entries = history.filter { it.player == Player.TWO },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryColumn(
+    label: String,
+    entries: List<LifeChange>,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = label,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+            fontSize = 16.sp,
+            modifier = Modifier.padding(vertical = 8.dp),
+        )
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            items(entries.asReversed()) { change ->
+                HistoryRow(change = change)
             }
         }
     }
@@ -154,21 +221,12 @@ private fun HistoryRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 10.dp),
+            .padding(horizontal = 8.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(
             text = formatTime(change.elapsedSeconds),
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
-            fontSize = 18.sp,
-            fontFamily = FontFamily.Monospace,
-        )
-        Text(
-            text = when (change.player) {
-                Player.ONE -> "P1"
-                Player.TWO -> "P2"
-            },
-            color = MaterialTheme.colorScheme.onBackground,
             fontSize = 18.sp,
             fontFamily = FontFamily.Monospace,
         )
@@ -190,7 +248,8 @@ private fun PlayerPanel(
     onAdjust: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier = modifier) {
+    BoxWithConstraints(modifier = modifier) {
+        val panelWidth = maxWidth
         Column(modifier = Modifier.fillMaxSize()) {
             AdjustZone(
                 label = "+",
@@ -211,25 +270,31 @@ private fun PlayerPanel(
                     .fillMaxWidth(),
             )
         }
-        Column(
-            modifier = Modifier.align(Alignment.Center),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            // Not-yet-committed change, e.g. "−3"; rendered invisible (but
-            // still taking up space, so the life total never jumps) when zero.
-            Text(
-                text = formatDelta(player.pendingDelta),
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-                fontSize = 40.sp,
-                modifier = Modifier.alpha(if (player.pendingDelta == 0) 0f else 1f),
-            )
-            Text(
-                text = player.life.toString(),
-                color = MaterialTheme.colorScheme.onBackground,
-                fontSize = 120.sp,
-                fontWeight = FontWeight.Bold,
-            )
+        // The life total is centered in the panel.
+        val lifeText = player.life.toString()
+        val factor = when (lifeText.length) {
+            1 -> 0.8f
+            2 -> 0.55f
+            else -> 0.45f
         }
+        Text(
+            text = lifeText,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontSize = (panelWidth.value * factor).sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.Center),
+        )
+
+        // The pending delta stays on the side, vertically centered.
+        Text(
+            text = formatDelta(player.pendingDelta),
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+            fontSize = (panelWidth.value * 0.12f).sp,
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 24.dp)
+                .alpha(if (player.pendingDelta == 0) 0f else 1f),
+        )
     }
 }
 
@@ -286,7 +351,7 @@ private fun MiddleBar(
     isTimerRunning: Boolean,
     onToggleTimer: () -> Unit,
     onShowHistory: () -> Unit,
-    onReset: () -> Unit,
+    onResetRequest: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -303,11 +368,11 @@ private fun MiddleBar(
                 text = formatTime(elapsedSeconds),
                 color = MaterialTheme.colorScheme.onBackground
                     .copy(alpha = if (isTimerRunning) 1f else 0.4f),
-                fontSize = 22.sp,
+                fontSize = 60.sp,
                 fontFamily = FontFamily.Monospace,
             )
         }
-        TextButton(onClick = onReset) {
+        TextButton(onClick = onResetRequest) {
             Text(text = "RESET")
         }
     }
