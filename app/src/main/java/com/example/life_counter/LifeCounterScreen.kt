@@ -1,5 +1,6 @@
 package com.example.life_counter
 
+import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -9,12 +10,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -30,9 +37,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -56,38 +66,84 @@ fun LifeCounterScreen(
     var showHistory by remember { mutableStateOf(false) }
     var showResetDialog by remember { mutableStateOf(false) }
 
+    // LocalConfiguration is a CompositionLocal — think of it like React context,
+    // but supplied by the platform: it recomposes whenever the device config
+    // (orientation, screen size, ...) changes, e.g. on a rotation.
+    val isLandscape =
+        LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Opponent's half: composed upright, then rotated 180° so it reads
-            // correctly for the player sitting across the table. Touch input is
-            // rotated along with it.
-            PlayerPanel(
-                player = state.player2,
-                onAdjust = { delta -> onLifeChange(Player.TWO, delta) },
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .rotate(180f),
-            )
-            MiddleBar(
-                elapsedSeconds = state.elapsedSeconds,
-                isTimerRunning = state.isTimerRunning,
-                onToggleTimer = onToggleTimer,
-                onShowHistory = { showHistory = true },
-                onResetRequest = { showResetDialog = true },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            PlayerPanel(
-                player = state.player1,
-                onAdjust = { delta -> onLifeChange(Player.ONE, delta) },
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-            )
+        // Portrait stacks the two panels top/bottom (a Column, split by
+        // height). Landscape's height is short, so that same split would
+        // squeeze each panel into a thin band — instead landscape uses a Row,
+        // splitting the (now generous) width between the panels, each turned
+        // on its side with `rotatedFit` so it fits its slot without overflow.
+        if (isLandscape) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                PlayerPanel(
+                    player = state.player2,
+                    onAdjust = { delta -> onLifeChange(Player.TWO, delta) },
+                    isLandscape = true,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .rotatedFit(270f),
+                )
+                MiddleBar(
+                    elapsedSeconds = state.elapsedSeconds,
+                    isTimerRunning = state.isTimerRunning,
+                    onToggleTimer = onToggleTimer,
+                    onShowHistory = { showHistory = true },
+                    onResetRequest = { showResetDialog = true },
+                    isLandscape = true,
+                    modifier = Modifier.fillMaxHeight(),
+                )
+                PlayerPanel(
+                    player = state.player1,
+                    onAdjust = { delta -> onLifeChange(Player.ONE, delta) },
+                    isLandscape = true,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .rotatedFit(90f),
+                )
+            }
+        } else {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Opponent's half: composed upright, then rotated 180° so it
+                // reads correctly for the player sitting across the table.
+                // Touch input is rotated along with it.
+                PlayerPanel(
+                    player = state.player2,
+                    onAdjust = { delta -> onLifeChange(Player.TWO, delta) },
+                    isLandscape = false,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .rotate(180f),
+                )
+                MiddleBar(
+                    elapsedSeconds = state.elapsedSeconds,
+                    isTimerRunning = state.isTimerRunning,
+                    onToggleTimer = onToggleTimer,
+                    onShowHistory = { showHistory = true },
+                    onResetRequest = { showResetDialog = true },
+                    isLandscape = false,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                PlayerPanel(
+                    player = state.player1,
+                    onAdjust = { delta -> onLifeChange(Player.ONE, delta) },
+                    isLandscape = false,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                )
+            }
         }
         if (showHistory) {
             HistoryOverlay(
@@ -239,6 +295,42 @@ private fun HistoryRow(
     }
 }
 
+// A plain `.rotate()` only repaints pixels — it doesn't change what the
+// child measures itself against. A 90°/270° rotation inside a box that
+// wasn't sized for that orientation (e.g. a wide-short Row/Column slot)
+// will overflow it. This measures the child against *swapped* constraints
+// — as if width and height were transposed, its true shape once turned on
+// its side — then reports its own size back as that measured result
+// swapped back (not the incoming constraints' upper bound — for a
+// wrap-content parent like MiddleBar's landscape Column, that bound can be
+// almost the full screen width, which would make every rotated child claim
+// that much space). For 0°/180° the shape doesn't change, so it's a plain
+// rotate.
+private fun Modifier.rotatedFit(degrees: Float): Modifier =
+    if (degrees % 180f == 0f) {
+        rotate(degrees)
+    } else {
+        layout { measurable, constraints ->
+            val swapped = Constraints(
+                minWidth = constraints.minHeight,
+                maxWidth = constraints.maxHeight,
+                minHeight = constraints.minWidth,
+                maxHeight = constraints.maxWidth,
+            )
+            val placeable = measurable.measure(swapped)
+            val width = placeable.height
+            val height = placeable.width
+            layout(width, height) {
+                placeable.placeWithLayer(
+                    x = (width - placeable.width) / 2,
+                    y = (height - placeable.height) / 2,
+                ) {
+                    rotationZ = degrees
+                }
+            }
+        }
+    }
+
 // In the panel's own frame of reference the far zone (away from the player)
 // increments and the near zone decrements; the 180° rotation of the opponent
 // panel keeps that physically true for both players.
@@ -246,6 +338,7 @@ private fun HistoryRow(
 private fun PlayerPanel(
     player: PlayerState,
     onAdjust: (Int) -> Unit,
+    isLandscape: Boolean,
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier = modifier) {
@@ -273,26 +366,48 @@ private fun PlayerPanel(
         // The life total is centered in the panel.
         val lifeText = player.life.toString()
         val factor = when (lifeText.length) {
-            1 -> 0.8f
-            2 -> 0.55f
+            1, 2 -> 0.55f
             else -> 0.45f
         }
-        Text(
-            text = lifeText,
-            color = MaterialTheme.colorScheme.onBackground,
-            fontSize = (panelWidth.value * factor).sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.align(Alignment.Center),
-        )
+        // The number and its ambiguity underline are rotated together as one
+        // unit — rotating just the Text would leave the underline (positioned
+        // by an offset relative to this Column) pointing the old, un-rotated
+        // "down", which after a 90° turn lands beside the number instead of
+        // under it.
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .rotate(if (isLandscape) -90f else 0f),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = lifeText,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = (panelWidth.value * factor).sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+            // A subtle line below the number for 6 and 9 to clarify orientation.
+            val isAmbiguous = lifeText == "6" || lifeText == "9"
+            if (isAmbiguous) {
+                Box(
+                    modifier = Modifier
+                        .offset(y = (-panelWidth.value * 0.11f).dp)
+                        .width(panelWidth * 0.28f)
+                        .height(panelWidth * 0.005f)
+                        .background(color = MaterialTheme.colorScheme.onBackground),
+                )
+            }
+        }
 
-        // The pending delta stays on the side, vertically centered.
+        // The pending delta stays on the side, positioned above the life total.
         Text(
             text = formatDelta(player.pendingDelta),
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
             fontSize = (panelWidth.value * 0.12f).sp,
             modifier = Modifier
-                .align(Alignment.CenterStart)
-                .padding(start = 24.dp)
+                .align(Alignment.TopStart)
+                .padding(start = 24.dp, top = 60.dp)
+                .rotate(if (isLandscape) -90f else 0f)
                 .alpha(if (player.pendingDelta == 0) 0f else 1f),
         )
     }
@@ -352,28 +467,57 @@ private fun MiddleBar(
     onToggleTimer: () -> Unit,
     onShowHistory: () -> Unit,
     onResetRequest: () -> Unit,
+    isLandscape: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier.padding(horizontal = 24.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        TextButton(onClick = onShowHistory) {
-            Text(text = "HISTORY")
+    // The bottom life counter's number ends up net upright on screen: its
+    // panel is rotated +90° but its own text counter-rotates -90°, so the
+    // two cancel out. MiddleBar has no panel-level rotation to cancel, so
+    // matching that same upright appearance means simply not rotating these
+    // texts at all — a -90° or +90° rotate would still read sideways.
+    val textRotation = 0f
+    val clockText: @Composable () -> Unit = {
+        Text(
+            text = formatTime(elapsedSeconds),
+            color = MaterialTheme.colorScheme.onBackground
+                .copy(alpha = if (isTimerRunning) 1f else 0.4f),
+            fontSize = 60.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.rotatedFit(textRotation),
+        )
+    }
+    // In landscape this becomes a vertical strip between the two panels, so
+    // it switches from a horizontal Row to a vertical Column and each text
+    // rotates 90° (via rotatedFit, so it still fits its own slot).
+    if (isLandscape) {
+        Column(
+            modifier = modifier.padding(vertical = 24.dp, horizontal = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            TextButton(onClick = onShowHistory) {
+                Text(text = "HISTORY", modifier = Modifier.rotatedFit(textRotation))
+            }
+            // Tap the clock to pause/resume; it dims while paused.
+            TextButton(onClick = onToggleTimer) { clockText() }
+            TextButton(onClick = onResetRequest) {
+                Text(text = "RESET", modifier = Modifier.rotatedFit(textRotation))
+            }
         }
-        // Tap the clock to pause/resume; it dims while paused.
-        TextButton(onClick = onToggleTimer) {
-            Text(
-                text = formatTime(elapsedSeconds),
-                color = MaterialTheme.colorScheme.onBackground
-                    .copy(alpha = if (isTimerRunning) 1f else 0.4f),
-                fontSize = 60.sp,
-                fontFamily = FontFamily.Monospace,
-            )
-        }
-        TextButton(onClick = onResetRequest) {
-            Text(text = "RESET")
+    } else {
+        Row(
+            modifier = modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            TextButton(onClick = onShowHistory) {
+                Text(text = "HISTORY")
+            }
+            // Tap the clock to pause/resume; it dims while paused.
+            TextButton(onClick = onToggleTimer) { clockText() }
+            TextButton(onClick = onResetRequest) {
+                Text(text = "RESET")
+            }
         }
     }
 }
@@ -384,21 +528,40 @@ private fun formatTime(totalSeconds: Int): String {
     return "${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
 }
 
-@Preview(widthDp = 411, heightDp = 891)
+private fun previewGameState() = GameState(
+    player1 = PlayerState(life = 9, pendingDelta = -2),
+    player2 = PlayerState(life = 21),
+    history = listOf(
+        LifeChange(Player.TWO, +1, 21, 312),
+        LifeChange(Player.ONE, -2, 18, 145),
+    ),
+    elapsedSeconds = 754,
+    isTimerRunning = true,
+)
+
+@Preview(widthDp = 411, heightDp = 891, name = "Portrait")
 @Composable
 private fun LifeCounterScreenPreview() {
     LifeCounterTheme {
         LifeCounterScreen(
-            state = GameState(
-                player1 = PlayerState(life = 18, pendingDelta = -2),
-                player2 = PlayerState(life = 21),
-                history = listOf(
-                    LifeChange(Player.TWO, +1, 21, 312),
-                    LifeChange(Player.ONE, -2, 18, 145),
-                ),
-                elapsedSeconds = 754,
-                isTimerRunning = true,
-            ),
+            state = previewGameState(),
+            onLifeChange = { _, _ -> },
+            onToggleTimer = {},
+            onReset = {},
+        )
+    }
+}
+
+// Preview tooling derives Configuration.orientation from whether widthDp
+// exceeds heightDp, so swapping the two dimensions is enough to make
+// LocalConfiguration.current.orientation report ORIENTATION_LANDSCAPE here —
+// no device or emulator rotation needed to see this layout.
+@Preview(widthDp = 891, heightDp = 411, name = "Landscape")
+@Composable
+private fun LifeCounterScreenLandscapePreview() {
+    LifeCounterTheme {
+        LifeCounterScreen(
+            state = previewGameState(),
             onLifeChange = { _, _ -> },
             onToggleTimer = {},
             onReset = {},
