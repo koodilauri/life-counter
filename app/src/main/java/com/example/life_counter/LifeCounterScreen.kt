@@ -22,7 +22,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,6 +44,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -64,6 +71,7 @@ fun LifeCounterScreen(
     // Whether the history overlay / reset dialog are open is pure UI state —
     // no game rule depends on it — so it lives here, not in the ViewModel.
     var showHistory by remember { mutableStateOf(false) }
+    var showSearch by remember { mutableStateOf(false) }
     var showResetDialog by remember { mutableStateOf(false) }
 
     // LocalConfiguration is a CompositionLocal — think of it like React context,
@@ -98,6 +106,7 @@ fun LifeCounterScreen(
                     isTimerRunning = state.isTimerRunning,
                     onToggleTimer = onToggleTimer,
                     onShowHistory = { showHistory = true },
+                    onShowSearch = { showSearch = true },
                     onResetRequest = { showResetDialog = true },
                     isLandscape = true,
                     modifier = Modifier.fillMaxHeight(),
@@ -131,6 +140,7 @@ fun LifeCounterScreen(
                     isTimerRunning = state.isTimerRunning,
                     onToggleTimer = onToggleTimer,
                     onShowHistory = { showHistory = true },
+                    onShowSearch = { showSearch = true },
                     onResetRequest = { showResetDialog = true },
                     isLandscape = false,
                     modifier = Modifier.fillMaxWidth(),
@@ -149,6 +159,12 @@ fun LifeCounterScreen(
             HistoryOverlay(
                 history = state.history,
                 onClose = { showHistory = false },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        if (showSearch) {
+            CardSearchOverlay(
+                onClose = { showSearch = false },
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -466,6 +482,7 @@ private fun MiddleBar(
     isTimerRunning: Boolean,
     onToggleTimer: () -> Unit,
     onShowHistory: () -> Unit,
+    onShowSearch: () -> Unit,
     onResetRequest: () -> Unit,
     isLandscape: Boolean,
     modifier: Modifier = Modifier,
@@ -489,36 +506,64 @@ private fun MiddleBar(
     // In landscape this becomes a vertical strip between the two panels, so
     // it switches from a horizontal Row to a vertical Column and each text
     // rotates 90° (via rotatedFit, so it still fits its own slot).
+    // A Box (rather than a Row/Column with SpaceBetween) lets the clock sit at
+    // the true centre of the screen, independent of the icons' widths, while
+    // the icons hug the edges. History + Search pair up at one edge, Reset at
+    // the other.
     if (isLandscape) {
-        Column(
-            modifier = modifier.padding(vertical = 24.dp, horizontal = 4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween,
-        ) {
-            TextButton(onClick = onShowHistory) {
-                Text(text = "HISTORY", modifier = Modifier.rotatedFit(textRotation))
+        Box(modifier = modifier.padding(vertical = 24.dp, horizontal = 4.dp)) {
+            Column(
+                modifier = Modifier.align(Alignment.TopCenter),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                BarIconButton(onShowHistory, Icons.AutoMirrored.Filled.List, "History")
+                BarIconButton(onShowSearch, Icons.Filled.Search, "Search")
             }
             // Tap the clock to pause/resume; it dims while paused.
-            TextButton(onClick = onToggleTimer) { clockText() }
-            TextButton(onClick = onResetRequest) {
-                Text(text = "RESET", modifier = Modifier.rotatedFit(textRotation))
-            }
+            TextButton(
+                onClick = onToggleTimer,
+                modifier = Modifier.align(Alignment.Center),
+            ) { clockText() }
+            BarIconButton(
+                onResetRequest, Icons.Filled.Refresh, "Reset",
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
     } else {
-        Row(
-            modifier = modifier.padding(horizontal = 24.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            TextButton(onClick = onShowHistory) {
-                Text(text = "HISTORY")
+        Box(modifier = modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Row(modifier = Modifier.align(Alignment.CenterStart)) {
+                BarIconButton(onShowHistory, Icons.AutoMirrored.Filled.List, "History")
+                BarIconButton(onShowSearch, Icons.Filled.Search, "Search")
             }
             // Tap the clock to pause/resume; it dims while paused.
-            TextButton(onClick = onToggleTimer) { clockText() }
-            TextButton(onClick = onResetRequest) {
-                Text(text = "RESET")
-            }
+            TextButton(
+                onClick = onToggleTimer,
+                modifier = Modifier.align(Alignment.Center),
+            ) { clockText() }
+            BarIconButton(
+                onResetRequest, Icons.Filled.Refresh, "Reset",
+                modifier = Modifier.align(Alignment.CenterEnd),
+            )
         }
+    }
+}
+
+// Compact icon buttons keep all three actions to a fixed 48dp footprint, so
+// they no longer crowd the clock out of the centre the way the text labels did.
+@Composable
+private fun BarIconButton(
+    onClick: () -> Unit,
+    icon: ImageVector,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+) {
+    IconButton(onClick = onClick, modifier = modifier) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.size(32.dp),
+        )
     }
 }
 

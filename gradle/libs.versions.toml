@@ -8,7 +8,15 @@ espressoCore = "3.7.0"
 composeBom = "2026.06.01"
 activityCompose = "1.13.0"
 lifecycleViewmodelCompose = "2.11.0"
+coroutines = "1.11.0"
 coroutinesTest = "1.11.0"
+# These are held to Kotlin 2.1-era releases on purpose: AGP 9.2.1's built-in
+# Kotlin compiler is 2.2.0, which can only read class metadata up to language
+# version 2.3. Newer Ktor/Coil/serialization (e.g. 3.5.0) are compiled against
+# Kotlin 2.4 and fail with "incompatible version of Kotlin" at compile time.
+ktor = "3.1.3"
+coil = "3.2.0"
+serializationJson = "1.8.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -20,9 +28,19 @@ androidx-activity-compose = { group = "androidx.activity", name = "activity-comp
 androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycleViewmodelCompose" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core" }
 androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serializationJson" }
+ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }
+ktor-client-cio = { group = "io.ktor", name = "ktor-client-cio", version.ref = "ktor" }
+ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-content-negotiation", version.ref = "ktor" }
+ktor-serialization-kotlinx-json = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }
+coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
+coil-network-ktor3 = { group = "io.coil-kt.coil3", name = "coil-network-ktor3", version.ref = "coil" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
