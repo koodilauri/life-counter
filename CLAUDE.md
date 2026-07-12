@@ -14,9 +14,7 @@ A two-player TCG (trading card game) life counter app for Android, written in Ko
 - Round timer (counts up, tap to pause/resume). Auto-starts on the first life change — but a manual pause is sticky: only a manual resume (or reset) restarts it.
 - History log of all (grouped) life changes (how much, resulting total), timestamped with **round-timer time** (mm:ss into the round), not wall-clock time; shown as two columns labelled TOP / BOTTOM (matching the screen halves).
 
-## Teaching Mode (important)
-
-The user is an experienced developer (JS/TS background — see sibling projects) but has **no Kotlin or Android experience**. This project's primary purpose is learning, not shipping fast:
+## Teaching Mode
 
 - Work in small, reviewable steps. One concept or feature per step, not a big-bang scaffold.
 - Before each edit, explain **why**: the Kotlin/Android concept involved, and the reasoning behind the design choice. Relate concepts to JS/TS equivalents where it helps (e.g. `val`/`var` vs `const`/`let`, coroutines vs async/await, Compose vs React).
@@ -59,7 +57,7 @@ No system Gradle is installed — always use the wrapper (`./gradlew`).
 
 Scaffolded from Android Studio's **"No Activity"** template (Gradle 9.4.1, AGP 9.2.1, compileSdk 37, minSdk 25, namespace `com.example.life_counter`), then converted to Compose (BOM 2026.06.01, material3, activity-compose; Compose compiler plugin 2.2.10 matching AGP's built-in Kotlin). `MainActivity` + hello-world `@Composable` in place; `./gradlew assembleDebug` builds clean. No emulator AVD or device was available to run it as of step 2.
 
-Tutorial progress:
+Progress:
 - [x] Step 1 — project scaffold, CLI build verified
 - [x] Step 2 — swap View-system deps for Compose (BOM, activity-compose, compose compiler plugin), add `MainActivity` + first `@Composable`
 - [x] Step 3 — `GameState` data class + `GameViewModel` with `StateFlow` (+ `GameViewModelTest`, 4 passing JVM tests)
@@ -68,5 +66,3 @@ Tutorial progress:
 - [x] Step 6 — round timer (counts up; tap the clock to pause/resume, dims while paused; `timerJob` coroutine in ViewModel). Gotcha learned: virtual-time tests must pause the timer before finishing, or `runTest` never drains the task queue and the test hangs.
 - [x] Step 7 — history log (full-screen overlay via local `remember` state, `LazyColumn`, newest first; tap anywhere or CLOSE to dismiss)
 - [x] Step 8 — FAB card search-as-you-type (Flow showcase). Networking added: Ktor client (CIO) + `kotlinx.serialization` (plugin + json) + Coil 3 (`coil-network-ktor3`) for images; INTERNET permission. New `CardSearchViewModel` builds a declarative Flow pipeline (`MutableStateFlow` query → `debounce`/`distinctUntilChanged`/`flatMapLatest` → `stateIn`) against the GoAgain API (`api.goagain.dev/v1/cards`), deliberately contrasting the ViewModel's older imperative `scheduleCommit` debounce. `SearchUiState` sealed interface; `CardSearchOverlay` mirrors the history overlay; SEARCH button in `MiddleBar`. 5 virtual-time tests (incl. proving `flatMapLatest` cancels a stale in-flight search via a fake repo). **Gotcha learned:** AGP 9.2.1's built-in Kotlin compiler is 2.2.0 (reads class metadata only up to language version 2.3) — the newest Ktor/Coil/serialization (3.5.0 etc., compiled against Kotlin 2.4) fail with "incompatible version of Kotlin"; pin to Kotlin-2.1-era releases (Ktor 3.1.3, Coil 3.2.0, serialization-json 1.8.1). Find the offender with `./gradlew :app:dependencyInsight --dependency kotlin-stdlib --configuration debugCompileClasspath`.
-
-All 8 tutorial steps are complete. Remaining known gaps: the Step 8 card search compiles + is unit-tested but has NOT been run on a device yet (no AVD on this machine) — needs an Android Studio run to confirm live network results and that Coil auto-loads card images via the Ktor fetcher. Possible future ideas — starting-life picker, haptics on hold-repeat, persistence via DataStore.
