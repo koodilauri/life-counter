@@ -1,6 +1,7 @@
 package com.example.life_counter
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -11,18 +12,30 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
+import android.content.pm.ActivityInfo
+import androidx.activity.compose.LocalActivity
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -36,6 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -61,6 +75,21 @@ fun CardSearchOverlay(
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    // Card search is portrait-only: even opened in landscape, force the display
+    // upright so the card images and rules text read normally. DisposableEffect
+    // restores the prior orientation when the overlay leaves the composition
+    // (CLOSE). Relies on MainActivity's configChanges so this rotation doesn't
+    // recreate the Activity and dismiss the overlay.
+    val activity = LocalActivity.current
+    DisposableEffect(activity) {
+        val previous = activity?.requestedOrientation
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        onDispose {
+            activity?.requestedOrientation =
+                previous ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
 
     // Which result (if any) is zoomed to full size. Pure UI state, so it lives
     // here rather than in the ViewModel.
@@ -104,6 +133,23 @@ fun CardSearchOverlay(
             onValueChange = viewModel::onQueryChange,
             singleLine = true,
             placeholder = { Text(text = "Search Flesh and Blood cards…") },
+            // Only offer the clear button when there's something to clear.
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    IconButton(
+                        onClick = {
+                            viewModel.onQueryChange("")
+                            // Keep the keyboard up so the user can retype.
+                            focusRequester.requestFocus()
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Clear search",
+                        )
+                    }
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 8.dp)
@@ -159,7 +205,7 @@ private fun CardRow(card: Card, onClick: () -> Unit) {
             .padding(vertical = 8.dp),
     ) {
         AsyncImage(
-            model = card.imageUrl,
+            model = card.primary.imageUrl,
             contentDescription = card.name,
             modifier = Modifier
                 .width(60.dp)
@@ -169,12 +215,20 @@ private fun CardRow(card: Card, onClick: () -> Unit) {
         )
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.padding(top = 2.dp)) {
-            Text(
-                text = card.name,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-            )
+            // Name + its available colors, so multi-pitch cards are obvious at a
+            // glance without opening them.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = card.name,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                if (card.colors.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    ColorPips(card.colors)
+                }
+            }
             if (card.typeText.isNotBlank()) {
                 Text(
                     text = card.typeText,
@@ -182,16 +236,9 @@ private fun CardRow(card: Card, onClick: () -> Unit) {
                     fontSize = 14.sp,
                 )
             }
-            cardMeta(card)?.let { meta ->
+            if (card.primary.functionalText.isNotBlank()) {
                 Text(
-                    text = meta,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                    fontSize = 14.sp,
-                )
-            }
-            if (card.functionalText.isNotBlank()) {
-                Text(
-                    text = card.functionalText,
+                    text = card.primary.functionalText,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
                     fontSize = 13.sp,
                     maxLines = 3,
@@ -203,9 +250,32 @@ private fun CardRow(card: Card, onClick: () -> Unit) {
     }
 }
 
-// Full-screen zoom of a single card's image, over a dim scrim. Tap to dismiss.
+// A row of small solid dots, one per color. Non-interactive — used in the list.
+@Composable
+private fun ColorPips(colors: List<CardColor>, modifier: Modifier = Modifier) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        colors.forEach { color ->
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .clip(CircleShape)
+                    .background(color.pipColor()),
+            )
+        }
+    }
+}
+
+// Full-screen zoom of a single card, over a dim scrim. Tap the scrim to
+// dismiss; tap a pitch pip (multi-pitch cards) to swap which variant is shown.
 @Composable
 private fun EnlargedCard(card: Card, onDismiss: () -> Unit) {
+    // Which pitch variant is on screen. Keyed on `card` so it resets to the
+    // default whenever a different card is opened.
+    var selected by remember(card) { mutableStateOf(card.primary) }
+    // Image vs. rules text. The printed image can be outdated after an errata,
+    // so the text (from the API) is offered as the authoritative alternative.
+    var showText by remember(card) { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -217,30 +287,176 @@ private fun EnlargedCard(card: Card, onDismiss: () -> Unit) {
             ),
         contentAlignment = Alignment.Center,
     ) {
-        if (card.imageUrl != null) {
-            AsyncImage(
-                model = card.imageUrl,
-                contentDescription = card.name,
-                modifier = Modifier
-                    .fillMaxWidth(0.9f)
-                    .aspectRatio(CARD_ASPECT_RATIO)
-                    .clip(RoundedCornerShape(12.dp)),
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(24.dp),
+        ) {
+            if (showText || selected.imageUrl == null) {
+                RulesTextPanel(card = card, variant = selected)
+            } else {
+                AsyncImage(
+                    model = selected.imageUrl,
+                    contentDescription = card.name,
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .aspectRatio(CARD_ASPECT_RATIO)
+                        .clip(RoundedCornerShape(12.dp)),
+                )
+            }
+
+            // Only offer the toggle when there's actually an image to switch
+            // back to; imageless cards stay on the text panel.
+            if (selected.imageUrl != null) {
+                TextButton(
+                    onClick = { showText = !showText },
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    Text(text = if (showText) "SHOW CARD" else "SHOW RULES TEXT")
+                }
+            }
+
+            // Pitch selector: one tappable pip per variant, only when there's a
+            // choice to make.
+            if (card.variants.size > 1) {
+                Row(
+                    modifier = Modifier.padding(top = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    card.variants.forEach { variant ->
+                        PitchPip(
+                            variant = variant,
+                            isSelected = variant == selected,
+                            onClick = { selected = variant },
+                        )
+                    }
+                }
+            }
+
+            LegalityRow(
+                summary = card.legalitySummary(),
+                modifier = Modifier.padding(top = 20.dp),
             )
-        } else {
-            // No printing image for this card — show the name so the tap isn't a dead end.
-            Text(text = card.name, color = Color.White, fontSize = 24.sp)
         }
     }
 }
 
-// Only include pitch/cost that the card actually has (many cards lack one).
-private fun cardMeta(card: Card): String? {
+// A large, tappable pitch pip: colored circle with its pitch number, ringed
+// white when selected.
+@Composable
+private fun PitchPip(variant: CardVariant, isSelected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(variant.color.pipColor())
+            .then(
+                if (isSelected) Modifier.border(3.dp, Color.White, CircleShape)
+                else Modifier,
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = variant.pitch,
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+// The card's text as the API reports it — the authoritative version when the
+// printed image is out of date (errata). Reads from the selected variant, so
+// switching pitch pips updates the text/stats.
+@Composable
+private fun RulesTextPanel(card: Card, variant: CardVariant) {
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    Column(
+        modifier = Modifier
+            .fillMaxWidth(0.9f)
+            .heightIn(max = 460.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp),
+    ) {
+        Text(
+            text = card.name,
+            color = onSurface,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        if (card.typeText.isNotBlank()) {
+            Text(
+                text = card.typeText,
+                color = onSurface.copy(alpha = 0.6f),
+                fontSize = 15.sp,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        statLine(variant)?.let { line ->
+            Text(
+                text = line,
+                color = onSurface.copy(alpha = 0.6f),
+                fontSize = 15.sp,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        Text(
+            text = variant.functionalText.ifBlank { "No rules text." },
+            color = onSurface,
+            fontSize = 16.sp,
+            lineHeight = 22.sp,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+    }
+}
+
+// Only the stats the variant actually has (many cards lack power/defense).
+private fun statLine(variant: CardVariant): String? {
     val parts = buildList {
-        if (card.pitch.isNotBlank()) add("Pitch ${card.pitch}")
-        if (card.cost.isNotBlank()) add("Cost ${card.cost}")
+        if (variant.pitch.isNotBlank()) add("Pitch ${variant.pitch}")
+        if (variant.cost.isNotBlank()) add("Cost ${variant.cost}")
+        if (variant.power.isNotBlank()) add("${variant.power} power")
+        if (variant.defense.isNotBlank()) add("${variant.defense} def")
     }
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
+
+@Composable
+private fun LegalityRow(summary: LegalitySummary, modifier: Modifier = Modifier) {
+    if (summary.legalFormats.isEmpty() && summary.bannedFormats.isEmpty()) return
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        if (summary.legalFormats.isNotEmpty()) {
+            Text(
+                text = "Legal: ${summary.legalFormats.joinToString(" · ")}",
+                color = LEGAL_GREEN,
+                fontSize = 15.sp,
+            )
+        }
+        if (summary.bannedFormats.isNotEmpty()) {
+            Text(
+                text = "Banned: ${summary.bannedFormats.joinToString(" · ")}",
+                color = BANNED_RED,
+                fontSize = 15.sp,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+}
+
+private fun CardColor.pipColor(): Color = when (this) {
+    CardColor.RED -> Color(0xFFD5473B)
+    CardColor.YELLOW -> Color(0xFFE0B93B)
+    CardColor.BLUE -> Color(0xFF3B72D5)
+    CardColor.NONE -> Color(0xFF888888)
+}
+
+private val LEGAL_GREEN = Color(0xFF6FCF97)
+private val BANNED_RED = Color(0xFFEB5757)
 
 // FAB card face is ~450×628px.
 private const val CARD_ASPECT_RATIO = 0.717f

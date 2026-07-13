@@ -37,8 +37,16 @@ private class FakeCardRepository(
     }
 
     companion object {
-        fun sampleCard(name: String) =
-            Card(name = name, pitch = "1", cost = "0", typeText = "Action", functionalText = "", imageUrl = null)
+        fun sampleCard(name: String) = Card(
+            name = name,
+            typeText = "Action",
+            variants = listOf(
+                CardVariant(
+                    color = CardColor.RED, pitch = "1", cost = "0", functionalText = "", imageUrl = null,
+                    legality = Legality(legalFormats = listOf("Blitz", "CC"), bannedFormats = emptyList()),
+                ),
+            ),
+        )
     }
 }
 

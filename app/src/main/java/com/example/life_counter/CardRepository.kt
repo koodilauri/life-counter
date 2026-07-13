@@ -32,19 +32,17 @@ class GoAgainCardRepository(
     override suspend fun search(query: String): List<Card> {
         val response: CardSearchResponse = client.get(SEARCH_URL) {
             parameter("name", query)
-            parameter("limit", 20)
+            // The API returns one row per pitch/color, and grouping collapses
+            // several of those into one card — so ask for more rows than the
+            // number of cards we want to show.
+            parameter("limit", 40)
         }.body()
 
-        return response.data.map { dto ->
-            Card(
-                name = dto.name,
-                pitch = dto.pitch,
-                cost = dto.cost,
-                typeText = dto.typeText,
-                functionalText = dto.functionalText,
-                imageUrl = dto.printings.firstOrNull()?.imageUrl,
-            )
-        }
+        // Group rows sharing a name into a single Card carrying all its pitch
+        // variants. groupBy keeps first-seen order for both keys and values.
+        return response.data
+            .groupBy { it.name }
+            .map { (name, dtos) -> dtos.toCard(name) }
     }
 
     companion object {
@@ -56,4 +54,44 @@ class GoAgainCardRepository(
             }
         }
     }
+}
+
+// Extension functions on the DTO types keep the mapping close to the data it
+// maps, without cluttering the repository class body.
+
+private fun List<CardDto>.toCard(name: String): Card {
+    val variants = this
+        // pitch is a string like "1"/"2"/"3" (or "" for non-pitching cards);
+        // sort numerically, empties last, so red→yellow→blue is stable.
+        .sortedBy { it.pitch.toIntOrNull() ?: Int.MAX_VALUE }
+        .map { dto ->
+            CardVariant(
+                color = CardColor.fromApi(dto.color),
+                pitch = dto.pitch,
+                cost = dto.cost,
+                power = dto.power,
+                defense = dto.defense,
+                functionalText = dto.functionalText,
+                imageUrl = dto.printings.firstOrNull()?.imageUrl,
+                // Per-pitch: bans can differ between the red/yellow/blue versions.
+                legality = dto.toLegality(),
+            )
+        }
+    // typeText is the same across pitches — read it off any row.
+    val any = this.first()
+    return Card(name = name, typeText = any.typeText, variants = variants)
+}
+
+private fun CardDto.toLegality(): Legality {
+    val legal = buildList {
+        if (blitzLegal && !blitzBanned && !blitzSuspended) add("Blitz")
+        if (ccLegal && !ccBanned && !ccSuspended) add("CC")
+        if (commonerLegal && !commonerBanned && !commonerSuspended) add("Commoner")
+    }
+    val banned = buildList {
+        if (blitzBanned || blitzSuspended) add("Blitz")
+        if (ccBanned || ccSuspended) add("CC")
+        if (commonerBanned || commonerSuspended) add("Commoner")
+    }
+    return Legality(legalFormats = legal, bannedFormats = banned)
 }
