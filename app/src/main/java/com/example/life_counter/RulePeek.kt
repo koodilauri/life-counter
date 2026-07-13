@@ -121,9 +121,10 @@ internal fun CrText(
     )
 }
 
-// A cross-reference in CR text, e.g. "[1.3.2a]" or "[8.2]" — at least two dotted
-// parts so bare "[1]" footnote markers aren't linkified.
-private val CROSS_REFERENCE = Regex("""\[(\d+\.\d+(?:\.\d+)*[a-z]?)]""")
+// A cross-reference in CR text: a bare chapter/part number ("[2]") or a dotted
+// rule ("[1.3.2a]"). Only refs that actually resolve are turned into links
+// (see isKnownReference), so stray bracketed numbers stay plain text.
+private val CROSS_REFERENCE = Regex("""\[(\d+(?:\.\d+)*[a-z]?)]""")
 
 private fun buildCrText(
     text: String,

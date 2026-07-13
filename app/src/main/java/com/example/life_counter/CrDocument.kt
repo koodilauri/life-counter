@@ -76,6 +76,17 @@ class CrDocument(val entries: List<CrEntry>) {
      */
     fun ruleBlock(reference: String): List<CrEntry> {
         val start = indexOfReference(reference) ?: return emptyList()
+        // A whole chapter would be enormous in a peek — show a compact overview
+        // instead: the chapter heading plus its section headings.
+        if (entries[start].level == CrLevel.CHAPTER) {
+            val overview = mutableListOf(entries[start])
+            var j = start + 1
+            while (j < entries.size && entries[j].level != CrLevel.CHAPTER) {
+                if (entries[j].level == CrLevel.SECTION) overview += entries[j]
+                j++
+            }
+            return overview
+        }
         val block = mutableListOf(entries[start])
         var i = start + 1
         while (i < entries.size) {
@@ -121,8 +132,8 @@ class CrDocument(val entries: List<CrEntry>) {
     }
 
     companion object {
-        // A jump target: at least two dotted parts, optional trailing letter.
-        private val REFERENCE_QUERY = Regex("""\d+\.\d+(?:\.\d+)*[a-z]?""")
+        // A jump target: a bare chapter number ("2") or a dotted rule ("8.3.5a").
+        private val REFERENCE_QUERY = Regex("""\d+(?:\.\d+)*[a-z]?""")
         // A numbered line: leading reference then the rest of the line.
         private val NUMBERED = Regex("""^(\d+(?:\.\d+)*[a-z]?) (.*)$""")
 

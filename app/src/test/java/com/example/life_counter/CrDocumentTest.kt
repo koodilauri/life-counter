@@ -107,6 +107,17 @@ class CrDocumentTest {
     }
 
     @Test
+    fun `a bare chapter reference jumps and peeks a compact overview`() {
+        // "1" resolves to the chapter; its block is the heading + section
+        // headings only (not the deep rules/prose underneath).
+        val result = doc.search("1")
+        assertTrue(result is CrSearchResult.Jump)
+
+        val block = doc.ruleBlock("1").map { it.reference }
+        assertEquals(listOf("1", "1.0"), block)
+    }
+
+    @Test
     fun `empty query browses and gibberish finds nothing`() {
         assertTrue(doc.search("   ") is CrSearchResult.Browse)
         assertTrue(doc.search("zzzznotfound") is CrSearchResult.NoMatch)
