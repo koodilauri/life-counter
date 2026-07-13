@@ -56,6 +56,13 @@ class CrDocument(val entries: List<CrEntry>) {
 
     fun indexOfReference(reference: String): Int? = refToIndex[reference]
 
+    /**
+     * Whether [reference] resolves to a rule in this document. False for the
+     * handful of references LSS's published CR cites but never defines (e.g. 5.5,
+     * 4.6) — those are rendered as plain text rather than dead links.
+     */
+    fun hasReference(reference: String): Boolean = refToIndex.containsKey(reference)
+
     /** The reference of [index]'s entry, or the nearest numbered one above it. */
     fun nearestReference(index: Int): String? {
         for (i in index downTo 0) entries[i].reference?.let { return it }

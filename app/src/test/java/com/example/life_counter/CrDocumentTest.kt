@@ -130,4 +130,19 @@ class CrDocumentTest {
 
         assertTrue(real.search("go again") is CrSearchResult.Matches)
     }
+
+    // The published CR cites 5.5 and 4.6 but never defines them (an LSS omission
+    // in both txt and PDF). hasReference must report them absent so they render
+    // as plain text, not dead links.
+    @Test
+    fun `known dangling references from the published CR are reported absent`() {
+        val file = File("src/main/assets/fab-cr.txt")
+        assumeTrue("bundled CR not reachable from test cwd", file.exists())
+
+        val real = CrDocument.parse(file.readText())
+
+        assertTrue(real.hasReference("5.4"))
+        assertTrue(!real.hasReference("5.5"))
+        assertTrue(!real.hasReference("4.6"))
+    }
 }

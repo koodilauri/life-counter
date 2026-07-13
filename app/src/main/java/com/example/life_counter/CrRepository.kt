@@ -37,31 +37,31 @@ interface CrRemote {
 }
 
 /**
- * Serves the CR text with precedence **cache → bundle**, and can refresh the
- * cache from the network. A refresh only adopts a newer file if it still parses
- * to a plausible CR, so a future format change can never downgrade the app below
- * its tested, bundled snapshot.
+ * Serves a rules document's text with precedence **cache → bundle**, and can
+ * refresh the cache from the network. A refresh only adopts a newer file if it
+ * still parses to a plausible rules document, so a future format change can
+ * never downgrade the app below its tested, bundled snapshot.
  */
 class CrRepository(
     private val store: CrStore,
     private val remote: CrRemote,
-    private val minLinkableKeywords: Int = MIN_LINKABLE_KEYWORDS,
+    private val isPlausible: (String) -> Boolean = ::looksLikeRulesText,
 ) {
 
-    /** The best CR text available right now: a refreshed cache, else the bundle. */
+    /** The best text available right now: a refreshed cache, else the bundle. */
     fun loadText(): String = store.readCached() ?: store.readBundled()
 
     /**
-     * Check for a newer CR and adopt it if it's plausible. Returns true iff the
-     * cache changed (so callers can re-parse). Never throws — any failure leaves
-     * the current text in place.
+     * Check for a newer document and adopt it if it's plausible. Returns true iff
+     * the cache changed (so callers can re-parse). Never throws — any failure
+     * leaves the current text in place.
      */
     suspend fun refresh(): Boolean {
         val result = runCatching { remote.fetch(store.cachedLastModified()) }
             .getOrElse { CrFetchResult.Failed(it) }
         return when (result) {
             is CrFetchResult.Updated -> {
-                if (isPlausibleCr(result.text)) {
+                if (isPlausible(result.text)) {
                     store.writeCached(result.text, result.lastModified)
                     true
                 } else {
@@ -71,26 +71,22 @@ class CrRepository(
             CrFetchResult.NotModified, is CrFetchResult.Failed -> false
         }
     }
-
-    private fun isPlausibleCr(text: String): Boolean =
-        RulesGlossary.parse(text).linkableKeywords.size >= minLinkableKeywords
-
-    companion object {
-        // The real CR has ~160 linkable keywords; well below that means the parse
-        // produced garbage (e.g. the file format changed) — reject it.
-        const val MIN_LINKABLE_KEYWORDS = 50
-    }
 }
+
+// Doc-agnostic sanity check: a real rules document has many numbered lines
+// (CR ~1300, TRP ~140, PPG ~40). Garbage or an error page has essentially none.
+private const val MIN_NUMBERED_RULES = 20
+
+private fun looksLikeRulesText(text: String): Boolean =
+    CrDocument.parse(text).entries.count { it.reference != null } >= MIN_NUMBERED_RULES
 
 // --- Android / Ktor implementations of the seams -----------------------------
 
-const val CR_ASSET_NAME = "fab-cr.txt"
-
-/** Cache in the app's private files dir; bundle read from assets. */
-class AndroidCrStore(context: Context) : CrStore {
+/** Cache in the app's private files dir; bundle read from assets. Per document. */
+class AndroidCrStore(context: Context, private val asset: String) : CrStore {
     private val appContext = context.applicationContext
-    private val cacheFile = File(appContext.filesDir, CR_ASSET_NAME)
-    private val metaFile = File(appContext.filesDir, "$CR_ASSET_NAME.lastmodified")
+    private val cacheFile = File(appContext.filesDir, asset)
+    private val metaFile = File(appContext.filesDir, "$asset.lastmodified")
 
     override fun readCached(): String? = cacheFile.takeIf { it.exists() }?.readText()
 
@@ -102,14 +98,17 @@ class AndroidCrStore(context: Context) : CrStore {
     }
 
     override fun readBundled(): String =
-        appContext.assets.open(CR_ASSET_NAME).bufferedReader().use { it.readText() }
+        appContext.assets.open(asset).bufferedReader().use { it.readText() }
 }
 
-/** Conditional GET against the official rules host. */
-class KtorCrRemote(private val client: HttpClient = defaultClient()) : CrRemote {
+/** Conditional GET against the official rules host for a given document URL. */
+class KtorCrRemote(
+    private val url: String,
+    private val client: HttpClient = defaultClient(),
+) : CrRemote {
 
     override suspend fun fetch(since: String?): CrFetchResult {
-        val response: HttpResponse = client.get(CR_URL) {
+        val response: HttpResponse = client.get(url) {
             if (since != null) header(HttpHeaders.IfModifiedSince, since)
         }
         return when (response.status) {
@@ -123,8 +122,6 @@ class KtorCrRemote(private val client: HttpClient = defaultClient()) : CrRemote 
     }
 
     companion object {
-        private const val CR_URL = "https://rules.fabtcg.com/txt/latest/en-fab-cr.txt"
-
         private fun defaultClient() = HttpClient(CIO) {
             install(HttpTimeout) {
                 requestTimeoutMillis = 10_000

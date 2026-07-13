@@ -94,12 +94,12 @@ fun CardSearchOverlay(
     val context = LocalContext.current
     val content by produceState<CrContent?>(initialValue = null) {
         value = withContext(Dispatchers.IO) {
-            CrContent(CrProvider.document(context), CrProvider.glossary(context))
+            CrContent(CrProvider.document(context, RulesDoc.CR), CrProvider.glossary(context))
         }
         val updated = withContext(Dispatchers.IO) { CrProvider.refreshOnce(context) }
         if (updated) {
             value = withContext(Dispatchers.IO) {
-                CrContent(CrProvider.document(context), CrProvider.glossary(context))
+                CrContent(CrProvider.document(context, RulesDoc.CR), CrProvider.glossary(context))
             }
         }
     }

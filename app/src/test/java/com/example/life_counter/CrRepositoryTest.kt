@@ -33,8 +33,8 @@ class CrRepositoryTest {
         }
     }
 
-    // A CR slice with two linkable (8.3) keywords — "plausible" when the guard
-    // threshold is set to 2 in these tests.
+    // A rules-shaped slice with numbered lines — "plausible". The garbage has
+    // none. The test guard accepts any document with at least one numbered rule.
     private val plausibleCr = """
         8.3 Ability Keywords
         8.3.4 Dominate
@@ -43,10 +43,12 @@ class CrRepositoryTest {
         Go again is a keyword.
     """.trimIndent()
 
-    private val garbageCr = "this text has no keyword headers at all"
+    private val garbageCr = "this text has no rule headers at all"
 
     private fun repo(store: CrStore, remote: CrRemote) =
-        CrRepository(store, remote, minLinkableKeywords = 2)
+        CrRepository(store, remote, isPlausible = { text ->
+            CrDocument.parse(text).entries.any { it.reference != null }
+        })
 
     @Test
     fun `loadText prefers the cached copy over the bundle`() {

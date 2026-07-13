@@ -75,6 +75,7 @@ internal fun RulePeekDialog(
                                 text = entry.text,
                                 color = onBg.copy(alpha = if (entry.isExample) 0.6f else 0.9f),
                                 onReference = onPeek,
+                                isKnownReference = document::hasReference,
                                 italic = entry.isExample,
                             )
                         }
@@ -93,17 +94,23 @@ internal fun RulePeekDialog(
     )
 }
 
-/** Rules text with any [x.y.z] cross-reference rendered as a tappable link. */
+/**
+ * Rules text with each [x.y.z] cross-reference rendered as a tappable link —
+ * but only when [isKnownReference] resolves it. References the published CR
+ * cites but never defines (5.5, 4.6) stay as plain text, so there are no dead
+ * links to tap.
+ */
 @Composable
 internal fun CrText(
     text: String,
     color: Color,
     onReference: (String) -> Unit,
+    isKnownReference: (String) -> Boolean,
     modifier: Modifier = Modifier,
     italic: Boolean = false,
 ) {
     val linkColor = MaterialTheme.colorScheme.primary
-    val annotated = buildCrText(text, linkColor, onReference)
+    val annotated = buildCrText(text, linkColor, onReference, isKnownReference)
     Text(
         text = annotated,
         color = color,
@@ -122,18 +129,24 @@ private fun buildCrText(
     text: String,
     linkColor: Color,
     onReference: (String) -> Unit,
+    isKnownReference: (String) -> Boolean,
 ): AnnotatedString = buildAnnotatedString {
     var index = 0
     for (match in CROSS_REFERENCE.findAll(text)) {
         append(text.substring(index, match.range.first))
         val reference = match.groupValues[1]
-        val link = LinkAnnotation.Clickable(
-            tag = reference,
-            styles = TextLinkStyles(
-                SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline),
-            ),
-        ) { onReference(reference) }
-        withLink(link) { append(match.value) }
+        if (isKnownReference(reference)) {
+            val link = LinkAnnotation.Clickable(
+                tag = reference,
+                styles = TextLinkStyles(
+                    SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline),
+                ),
+            ) { onReference(reference) }
+            withLink(link) { append(match.value) }
+        } else {
+            // Dangling reference (missing from the published CR) — plain text.
+            append(match.value)
+        }
         index = match.range.last + 1
     }
     append(text.substring(index))
