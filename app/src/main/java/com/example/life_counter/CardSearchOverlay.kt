@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -48,14 +50,24 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Full-screen card search overlay. Its own CardSearchViewModel drives the
@@ -276,6 +288,21 @@ private fun EnlargedCard(card: Card, onDismiss: () -> Unit) {
     // so the text (from the API) is offered as the authoritative alternative.
     var showText by remember(card) { mutableStateOf(false) }
 
+    // The CR keyword glossary. Loads immediately from the cache-or-bundle text
+    // (null only for the few ms until it lands, during which the rules text just
+    // shows without links), then checks once for a newer CR and re-reads if one
+    // was adopted. All off the main thread.
+    val context = LocalContext.current
+    val glossary by produceState<RulesGlossary?>(initialValue = null) {
+        value = withContext(Dispatchers.IO) { RulesGlossaryProvider.current(context) }
+        val updated = withContext(Dispatchers.IO) { RulesGlossaryProvider.refreshOnce(context) }
+        if (updated) {
+            value = withContext(Dispatchers.IO) { RulesGlossaryProvider.current(context) }
+        }
+    }
+    // Which keyword's definition is open, if any.
+    var shownKeyword by remember(card) { mutableStateOf<String?>(null) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -292,7 +319,12 @@ private fun EnlargedCard(card: Card, onDismiss: () -> Unit) {
             modifier = Modifier.padding(24.dp),
         ) {
             if (showText || selected.imageUrl == null) {
-                RulesTextPanel(card = card, variant = selected)
+                RulesTextPanel(
+                    card = card,
+                    variant = selected,
+                    glossary = glossary,
+                    onKeyword = { shownKeyword = it },
+                )
             } else {
                 AsyncImage(
                     model = selected.imageUrl,
@@ -337,7 +369,37 @@ private fun EnlargedCard(card: Card, onDismiss: () -> Unit) {
                 modifier = Modifier.padding(top = 20.dp),
             )
         }
+
+        // Keyword definition, shown over the enlarged card when a keyword is tapped.
+        shownKeyword?.let { keyword ->
+            val entry = glossary?.lookup(keyword)
+            if (entry != null) {
+                DefinitionDialog(entry = entry, onDismiss = { shownKeyword = null })
+            }
+        }
     }
+}
+
+// A scrollable popup with a keyword's Comprehensive Rules definition.
+@Composable
+private fun DefinitionDialog(entry: GlossaryEntry, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = "${entry.keyword}  ·  ${entry.reference}") },
+        text = {
+            Text(
+                text = entry.definition,
+                fontSize = 15.sp,
+                lineHeight = 21.sp,
+                modifier = Modifier
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState()),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(text = "CLOSE") }
+        },
+    )
 }
 
 // A large, tappable pitch pip: colored circle with its pitch number, ringed
@@ -369,7 +431,12 @@ private fun PitchPip(variant: CardVariant, isSelected: Boolean, onClick: () -> U
 // printed image is out of date (errata). Reads from the selected variant, so
 // switching pitch pips updates the text/stats.
 @Composable
-private fun RulesTextPanel(card: Card, variant: CardVariant) {
+private fun RulesTextPanel(
+    card: Card,
+    variant: CardVariant,
+    glossary: RulesGlossary?,
+    onKeyword: (String) -> Unit,
+) {
     val onSurface = MaterialTheme.colorScheme.onSurface
     Column(
         modifier = Modifier
@@ -402,14 +469,56 @@ private fun RulesTextPanel(card: Card, variant: CardVariant) {
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
-        Text(
+        KeywordText(
             text = variant.functionalText.ifBlank { "No rules text." },
+            glossary = glossary,
+            onKeyword = onKeyword,
             color = onSurface,
-            fontSize = 16.sp,
-            lineHeight = 22.sp,
             modifier = Modifier.padding(top = 12.dp),
         )
     }
+}
+
+// Renders card rules text, turning any Comprehensive Rules keyword into a
+// tappable, underlined link. Falls back to plain text while the glossary is
+// still loading or when the text contains no keywords.
+@Composable
+private fun KeywordText(
+    text: String,
+    glossary: RulesGlossary?,
+    onKeyword: (String) -> Unit,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    val spans = remember(text, glossary) {
+        glossary?.let { findKeywordSpans(text, it.linkableKeywords) } ?: emptyList()
+    }
+    val body: AnnotatedString = if (spans.isEmpty()) {
+        AnnotatedString(text)
+    } else {
+        buildAnnotatedString {
+            var index = 0
+            for (span in spans) {
+                append(text.substring(index, span.start))
+                val link = LinkAnnotation.Clickable(
+                    tag = span.keyword,
+                    styles = TextLinkStyles(
+                        SpanStyle(color = LINK_COLOR, textDecoration = TextDecoration.Underline),
+                    ),
+                ) { onKeyword(span.keyword) }
+                withLink(link) { append(text.substring(span.start, span.end)) }
+                index = span.end
+            }
+            append(text.substring(index))
+        }
+    }
+    Text(
+        text = body,
+        color = color,
+        fontSize = 16.sp,
+        lineHeight = 22.sp,
+        modifier = modifier,
+    )
 }
 
 // Only the stats the variant actually has (many cards lack power/defense).
@@ -457,6 +566,7 @@ private fun CardColor.pipColor(): Color = when (this) {
 
 private val LEGAL_GREEN = Color(0xFF6FCF97)
 private val BANNED_RED = Color(0xFFEB5757)
+private val LINK_COLOR = Color(0xFF6FA8FF)
 
 // FAB card face is ~450×628px.
 private const val CARD_ASPECT_RATIO = 0.717f
