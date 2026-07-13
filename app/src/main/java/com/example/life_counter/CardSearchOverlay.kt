@@ -25,7 +25,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,10 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
-import android.content.pm.ActivityInfo
-import androidx.activity.compose.LocalActivity
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -77,6 +73,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun CardSearchOverlay(
     onClose: () -> Unit,
+    onOpenRule: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: CardSearchViewModel = viewModel(),
 ) {
@@ -89,23 +86,29 @@ fun CardSearchOverlay(
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
     // Card search is portrait-only: even opened in landscape, force the display
-    // upright so the card images and rules text read normally. DisposableEffect
-    // restores the prior orientation when the overlay leaves the composition
-    // (CLOSE). Relies on MainActivity's configChanges so this rotation doesn't
-    // recreate the Activity and dismiss the overlay.
-    val activity = LocalActivity.current
-    DisposableEffect(activity) {
-        val previous = activity?.requestedOrientation
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        onDispose {
-            activity?.requestedOrientation =
-                previous ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    // upright so the card images and rules text read normally.
+    ForcePortrait()
+
+    // The CR glossary (for keyword links) + document (for peeking a keyword's
+    // rule). Loaded off the main thread, then refreshed once. See CrProvider.
+    val context = LocalContext.current
+    val content by produceState<CrContent?>(initialValue = null) {
+        value = withContext(Dispatchers.IO) {
+            CrContent(CrProvider.document(context), CrProvider.glossary(context))
+        }
+        val updated = withContext(Dispatchers.IO) { CrProvider.refreshOnce(context) }
+        if (updated) {
+            value = withContext(Dispatchers.IO) {
+                CrContent(CrProvider.document(context), CrProvider.glossary(context))
+            }
         }
     }
 
     // Which result (if any) is zoomed to full size. Pure UI state, so it lives
     // here rather than in the ViewModel.
     var selectedCard by remember { mutableStateOf<Card?>(null) }
+    // Which keyword's rule is being peeked, by CR reference (e.g. "8.3.5").
+    var peekRef by remember { mutableStateOf<String?>(null) }
 
     Box(modifier = modifier.fillMaxSize()) {
     Column(
@@ -193,7 +196,29 @@ fun CardSearchOverlay(
 
         // Tapping a result zooms its image; drawn last so it sits on top.
         selectedCard?.let { card ->
-            EnlargedCard(card = card, onDismiss = { selectedCard = null })
+            EnlargedCard(
+                card = card,
+                onDismiss = { selectedCard = null },
+                glossary = content?.glossary,
+                onPeekReference = { peekRef = it },
+            )
+        }
+
+        // Peeking a keyword's rule — the same popup the CR reader uses. "Go to
+        // rule" hands off to the full CR view at that reference.
+        content?.document?.let { document ->
+            peekRef?.let { reference ->
+                RulePeekDialog(
+                    document = document,
+                    reference = reference,
+                    onPeek = { peekRef = it },
+                    onGoTo = {
+                        peekRef = null
+                        onOpenRule(reference)
+                    },
+                    onDismiss = { peekRef = null },
+                )
+            }
         }
     }
 }
@@ -280,28 +305,18 @@ private fun ColorPips(colors: List<CardColor>, modifier: Modifier = Modifier) {
 // Full-screen zoom of a single card, over a dim scrim. Tap the scrim to
 // dismiss; tap a pitch pip (multi-pitch cards) to swap which variant is shown.
 @Composable
-private fun EnlargedCard(card: Card, onDismiss: () -> Unit) {
+private fun EnlargedCard(
+    card: Card,
+    onDismiss: () -> Unit,
+    glossary: RulesGlossary?,
+    onPeekReference: (String) -> Unit,
+) {
     // Which pitch variant is on screen. Keyed on `card` so it resets to the
     // default whenever a different card is opened.
     var selected by remember(card) { mutableStateOf(card.primary) }
     // Image vs. rules text. The printed image can be outdated after an errata,
     // so the text (from the API) is offered as the authoritative alternative.
     var showText by remember(card) { mutableStateOf(false) }
-
-    // The CR keyword glossary. Loads immediately from the cache-or-bundle text
-    // (null only for the few ms until it lands, during which the rules text just
-    // shows without links), then checks once for a newer CR and re-reads if one
-    // was adopted. All off the main thread.
-    val context = LocalContext.current
-    val glossary by produceState<RulesGlossary?>(initialValue = null) {
-        value = withContext(Dispatchers.IO) { RulesGlossaryProvider.current(context) }
-        val updated = withContext(Dispatchers.IO) { RulesGlossaryProvider.refreshOnce(context) }
-        if (updated) {
-            value = withContext(Dispatchers.IO) { RulesGlossaryProvider.current(context) }
-        }
-    }
-    // Which keyword's definition is open, if any.
-    var shownKeyword by remember(card) { mutableStateOf<String?>(null) }
 
     Box(
         modifier = Modifier
@@ -323,7 +338,10 @@ private fun EnlargedCard(card: Card, onDismiss: () -> Unit) {
                     card = card,
                     variant = selected,
                     glossary = glossary,
-                    onKeyword = { shownKeyword = it },
+                    // Tapping a keyword peeks its CR rule, resolved by reference.
+                    onKeyword = { keyword ->
+                        glossary?.lookup(keyword)?.reference?.let(onPeekReference)
+                    },
                 )
             } else {
                 AsyncImage(
@@ -369,37 +387,7 @@ private fun EnlargedCard(card: Card, onDismiss: () -> Unit) {
                 modifier = Modifier.padding(top = 20.dp),
             )
         }
-
-        // Keyword definition, shown over the enlarged card when a keyword is tapped.
-        shownKeyword?.let { keyword ->
-            val entry = glossary?.lookup(keyword)
-            if (entry != null) {
-                DefinitionDialog(entry = entry, onDismiss = { shownKeyword = null })
-            }
-        }
     }
-}
-
-// A scrollable popup with a keyword's Comprehensive Rules definition.
-@Composable
-private fun DefinitionDialog(entry: GlossaryEntry, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(text = "${entry.keyword}  ·  ${entry.reference}") },
-        text = {
-            Text(
-                text = entry.definition,
-                fontSize = 15.sp,
-                lineHeight = 21.sp,
-                modifier = Modifier
-                    .heightIn(max = 360.dp)
-                    .verticalScroll(rememberScrollState()),
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text(text = "CLOSE") }
-        },
-    )
 }
 
 // A large, tappable pitch pip: colored circle with its pitch number, ringed

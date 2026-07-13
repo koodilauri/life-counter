@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
@@ -72,6 +73,10 @@ fun LifeCounterScreen(
     // no game rule depends on it — so it lives here, not in the ViewModel.
     var showHistory by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
+    var showRules by remember { mutableStateOf(false) }
+    // When set, the rules overlay opens scrolled to this reference (from the card
+    // search's "Go to rule"); null for a plain rules-button open.
+    var rulesInitialRef by remember { mutableStateOf<String?>(null) }
     var showResetDialog by remember { mutableStateOf(false) }
 
     // LocalConfiguration is a CompositionLocal — think of it like React context,
@@ -107,6 +112,7 @@ fun LifeCounterScreen(
                     onToggleTimer = onToggleTimer,
                     onShowHistory = { showHistory = true },
                     onShowSearch = { showSearch = true },
+                    onShowRules = { showRules = true },
                     onResetRequest = { showResetDialog = true },
                     isLandscape = true,
                     modifier = Modifier.fillMaxHeight(),
@@ -141,6 +147,7 @@ fun LifeCounterScreen(
                     onToggleTimer = onToggleTimer,
                     onShowHistory = { showHistory = true },
                     onShowSearch = { showSearch = true },
+                    onShowRules = { showRules = true },
                     onResetRequest = { showResetDialog = true },
                     isLandscape = false,
                     modifier = Modifier.fillMaxWidth(),
@@ -165,6 +172,23 @@ fun LifeCounterScreen(
         if (showSearch) {
             CardSearchOverlay(
                 onClose = { showSearch = false },
+                // "Go to rule" from a keyword peek: close search, open the CR
+                // reader scrolled to that rule.
+                onOpenRule = { reference ->
+                    showSearch = false
+                    rulesInitialRef = reference
+                    showRules = true
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        if (showRules) {
+            RuleReferenceOverlay(
+                onClose = {
+                    showRules = false
+                    rulesInitialRef = null
+                },
+                initialReference = rulesInitialRef,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -483,6 +507,7 @@ private fun MiddleBar(
     onToggleTimer: () -> Unit,
     onShowHistory: () -> Unit,
     onShowSearch: () -> Unit,
+    onShowRules: () -> Unit,
     onResetRequest: () -> Unit,
     isLandscape: Boolean,
     modifier: Modifier = Modifier,
@@ -524,10 +549,14 @@ private fun MiddleBar(
                 onClick = onToggleTimer,
                 modifier = Modifier.align(Alignment.Center),
             ) { clockText() }
-            BarIconButton(
-                onResetRequest, Icons.Filled.Refresh, "Reset",
+            // Rules reference sits with Reset on the far side of the clock.
+            Column(
                 modifier = Modifier.align(Alignment.BottomCenter),
-            )
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                BarIconButton(onShowRules, Icons.Filled.Info, "Rules")
+                BarIconButton(onResetRequest, Icons.Filled.Refresh, "Reset")
+            }
         }
     } else {
         Box(modifier = modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
@@ -540,10 +569,11 @@ private fun MiddleBar(
                 onClick = onToggleTimer,
                 modifier = Modifier.align(Alignment.Center),
             ) { clockText() }
-            BarIconButton(
-                onResetRequest, Icons.Filled.Refresh, "Reset",
-                modifier = Modifier.align(Alignment.CenterEnd),
-            )
+            // Rules reference sits just right of the clock, with Reset at the edge.
+            Row(modifier = Modifier.align(Alignment.CenterEnd)) {
+                BarIconButton(onShowRules, Icons.Filled.Info, "Rules")
+                BarIconButton(onResetRequest, Icons.Filled.Refresh, "Reset")
+            }
         }
     }
 }
